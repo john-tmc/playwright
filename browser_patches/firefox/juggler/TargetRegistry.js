@@ -284,7 +284,7 @@ class TargetRegistry {
     return this._userContextIdToBrowserContext.get(userContextId);
   }
 
-  async newPage({browserContextId}) {
+    async newPage({browserContextId}) {
     const browserContext = this.browserContextForId(browserContextId);
     const features = "chrome,dialog=no,all";
     // See _callWithURIToLoad in browser.js for the structure of window.arguments
@@ -321,13 +321,18 @@ class TargetRegistry {
     const window = Services.ww.openWindow(null, AppConstants.BROWSER_CHROME_URL, '_blank', features, args);
     await waitForWindowReady(window);
     if (window.gBrowser.browsers.length !== 1)
-      throw new Error(`Unexpected number of tabs in the new window: ${window.gBrowser.browsers.length}`);
+      throw new Error(`Unexpcted number of tabs in the new window: ${window.gBrowser.browsers.length}`);
     const browser = window.gBrowser.browsers[0];
-    let target = this._browserToTarget.get(browser);
-    while (!target) {
-      await helper.awaitEvent(this, TargetRegistry.Events.TargetCreated);
-      target = this._browserToTarget.get(browser);
-    }
+    const target = this._browserToTarget.get(browser) || await new Promise(fulfill => {
+      const listener = helper.on(this, TargetRegistry.Events.TargetCreated, ({target}) => {
+        if (target._linkedBrowser === browser) {
+          helper.removeListeners([listener]);
+          fulfill(target);
+        }
+      });
+    });
+    if (browserContext && browserContext.defaultViewportSize)
+      setViewportSizeForBrowser(browserContext.defaultViewportSize, browser);
     browser.focus();
     if (browserContext.settings.timezoneId) {
       if (await target.hasFailedToOverrideTimezone())
@@ -335,6 +340,7 @@ class TargetRegistry {
     }
     return target.id();
   }
+
 
   targets() {
     return Array.from(this._browserToTarget.values());
